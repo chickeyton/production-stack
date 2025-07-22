@@ -18,6 +18,8 @@ import enum
 import math
 import random
 import threading
+import traceback
+from abc import ABC
 from typing import Dict, List
 
 from fastapi import Request
@@ -31,6 +33,7 @@ try:
     from lmcache.v1.cache_controller import controller_manager
     from lmcache.v1.cache_controller.message import (
         LookupMsg,
+        FullLookupMsg,
         QueryInstMsg,
     )
 except ImportError:
@@ -49,6 +52,7 @@ logger = init_logger(__name__)
 class RoutingLogic(str, enum.Enum):
     ROUND_ROBIN = "roundrobin"
     SESSION_BASED = "session"
+    TTFT = "ttft"
     KVAWARE = "kvaware"
     PREFIXAWARE = "prefixaware"
     DISAGGREGATED_PREFILL = "disaggregated_prefill"
@@ -108,6 +112,7 @@ class RoutingInterface(metaclass=SingletonABCMeta):
         engine_stats: Dict[str, EngineStats],
         request_stats: Dict[str, RequestStats],
         request: Request,
+        request_json: Dict,
     ) -> str:
         """
         Route the request to the appropriate engine URL
@@ -119,6 +124,33 @@ class RoutingInterface(metaclass=SingletonABCMeta):
             request_stats (Dict[str, RequestStats]): The request stats
                 indicating the request-level performance of each engine
             request (Request): The incoming request
+            request_json (Dict): The request body
+        """
+        raise NotImplementedError
+
+
+class AsyncRoutingInterface(RoutingInterface, ABC):
+
+    @abc.abstractmethod
+    async def async_route_request(
+            self,
+            endpoints: List[EndpointInfo],
+            engine_stats: Dict[str, EngineStats],
+            request_stats: Dict[str, RequestStats],
+            request: Request,
+            request_json: Dict,
+    ) -> str:
+        """
+        Route the request to the appropriate engine URL asynchronously
+
+        Args:
+            endpoints (List[EndpointInfo]): The list of engine URLs
+            engine_stats (Dict[str, EngineStats]): The engine stats indicating
+               the 'physical' load of each engine
+            request_stats (Dict[str, RequestStats]): The request stats
+               indicating the request-level performance of each engine
+            request (Request): The incoming request
+            request_json (Dict): The request body
         """
         raise NotImplementedError
 
@@ -138,6 +170,7 @@ class RoundRobinRouter(RoutingInterface):
         engine_stats: Dict[str, EngineStats],
         request_stats: Dict[str, RequestStats],
         request: Request,
+        request_json: Dict,
     ) -> str:
         """
         Route the request to the appropriate engine URL using a simple
@@ -150,6 +183,7 @@ class RoundRobinRouter(RoutingInterface):
             request_stats (Dict[str, RequestStats]): The request stats
                 indicating the request-level performance of each engine
             request (Request): The incoming request
+            request_json (Dict): The request body
         """
         len_engines = len(endpoints)
         chosen = sorted(endpoints, key=lambda e: e.url)[self.req_id % len_engines]
@@ -178,6 +212,7 @@ class SessionRouter(RoutingInterface):
         engine_stats: Dict[str, EngineStats],
         request_stats: Dict[str, RequestStats],
         request: Request,
+        request_json: Dict,
     ) -> str:
         """
         Route the request to the appropriate engine URL by the 'session id' in
@@ -192,6 +227,7 @@ class SessionRouter(RoutingInterface):
             request_stats (Dict[str, RequestStats]): The request stats
                 indicating the request-level performance of each engine
             request (Request): The incoming request
+            request_json (Dict): The request body
         """
         session_id = request.headers.get(self.session_key, None)
         logger.debug(f"Got session id: {session_id}")
@@ -209,7 +245,166 @@ class SessionRouter(RoutingInterface):
         return url
 
 
-class KvawareRouter(RoutingInterface):
+class TtftRouter(AsyncRoutingInterface):
+    """
+    Route the request to the appropriate engine URL by the least estimated TTFT.
+    """
+
+    def __init__(
+        self,
+        lmcache_controller_ip:str,
+        lmcache_controller_port: int,
+        session_key: str,
+    ):
+        logger.info(
+            f"Initializing TtftRouter with lmcache addr: {lmcache_controller_ip}:{lmcache_controller_port}"
+        )
+        self.kv_manager = controller_manager.LMCacheControllerManager(
+            f"{lmcache_controller_ip}:{lmcache_controller_port}"
+        )
+        self.instance_id_to_url = {}
+        self.session_key = session_key
+        self.hash_ring = HashRing()
+        self.tokenizer = None
+
+    def start_kv_manager(self):
+        """
+        Start the kv manager
+        """
+        self.loop = asyncio.new_event_loop()
+        self.thread = threading.Thread(target=self.loop.run_forever, daemon=True)
+        self.thread.start()
+        asyncio.run_coroutine_threadsafe(self.kv_manager.start_all(), self.loop)
+
+    def route_request(self, endpoints: List[EndpointInfo], engine_stats: Dict[str, EngineStats],
+                      request_stats: Dict[str, RequestStats], request: Request, request_json: Dict) -> str:
+        raise NotImplementedError
+
+    async def async_route_request(
+            self,
+            endpoints: List[EndpointInfo],
+            engine_stats: Dict[str, EngineStats],
+            request_stats: Dict[str, RequestStats],
+            request: Request,
+            request_json: Dict,
+    ) -> str:
+        """
+        Route the request to the appropriate engine URL by where the KV cache
+        of the longest prefix match is found.
+        If there is no session id in the request header, it will pick a server
+        with round robin.
+
+        Args:
+            endpoints (List[EndpointInfo]): The list of engine URLs
+            engine_stats (Dict[str, EngineStats]): The engine stats indicating
+               the 'physical' load of each engine
+            request_stats (Dict[str, RequestStats]): The request stats
+               indicating the request-level performance of each engine
+            request (Request): The incoming request
+            request_json (Dict): The request body (needed for finding the
+            longest prefix match)
+        """
+        try:
+            if request_stats is None:
+                ValueError("no request stats was provided")
+            if self.tokenizer is None:
+                self.tokenizer = AutoTokenizer.from_pretrained(endpoints[0].model_names[0])
+
+            token_ids = self.tokenizer.encode(request_json["prompt"])
+            msg = FullLookupMsg(tokens=token_ids)
+            ret_msg = await self.kv_manager.handle_orchestration_message(msg)
+            matched_infos = ret_msg.matched_info
+            best_matched_info = self._find_best_matched(matched_infos)
+            best_ttft_info = self._find_best_ttft(endpoints, matched_infos, best_matched_info,
+                                                  request_stats, len(token_ids))
+            return await self._get_instance_url(endpoints, best_ttft_info[0])
+        except ValueError:
+            logger.info("Fallback to QPS routing due to:")
+            logger.info(traceback.format_exc())
+            return self._fallback_routing(endpoints, request_stats, request)
+
+    def _find_best_matched(self, matched_infos):
+        best_matched_info = None
+        for instance_info in matched_infos:
+            if best_matched_info is None or instance_info[1][-1][1] > best_matched_info[1][-1][1]:
+                best_matched_info = instance_info
+        if best_matched_info is None:
+            raise ValueError("no best matched instance was found")
+        return best_matched_info
+
+    async def _find_best_ttft(self, endpoints, matched_infos, best_matched_info,
+                              request_stats, num_prompt_token):
+        num_uncomputed_token = num_prompt_token - best_matched_info[1][-1][1]
+        best_ttft = float('inf')
+        best_ttft_info = None
+        for instance_info in matched_infos:
+            url = await self._get_instance_url(endpoints, instance_info[0])
+            stats = request_stats.get(url, None)
+            if stats is None:
+                raise ValueError(f"{url} provides no request stats ")
+            if stats.queue_time is None:
+                raise ValueError(f"{url} provides no queue time")
+            if stats.prefill_tps is None:
+                raise ValueError(f"{url} provides no prefill TPS")
+            transfer_time = self._calc_transfer_time(instance_info, best_matched_info)
+            compute_time = num_uncomputed_token / stats.prefill_tps
+            ttft = stats.queue_time + transfer_time + compute_time
+            if best_ttft_info is None or ttft < best_ttft:
+                best_ttft = ttft
+                best_ttft_info = instance_info
+        if best_ttft_info is None:
+            raise ValueError(f"no best TTFT instance was found")
+        return best_ttft_info
+
+    async def _get_instance_url(self, endpoints, instance_id):
+        url = self.instance_id_to_url.get(instance_id, None)
+        if url is not None:
+            return url
+        for endpoint in endpoints:
+            msg = QueryInstMsg(
+                ip=endpoint.url.split(f":{endpoint.url.split(':')[-1]}")[
+                    0
+                ].split("//")[1]
+            )
+            ret_msg = await self.kv_manager.handle_orchestration_message(msg)
+            self.instance_id_to_url[ret_msg.instance_id] = endpoint.url
+            if ret_msg.instance_id == instance_id:
+                url = endpoint.url
+        if url is None:
+            raise ValueError(f"cannot resolve URL for {instance_id}")
+        return url
+
+    def _calc_transfer_time(self, instance_info, best_matched_info):
+        transfer_time = 0
+        for chunk in best_matched_info[1]:
+            if chunk[1] < instance_info[1][-1][1]:
+                continue
+            # TODO better estimation & support HBM
+            if chunk[0] == "cpu":
+                transfer_time += 1
+            elif chunk[0] == "disk":
+                transfer_time += 2
+            else:
+                transfer_time += 1
+        return transfer_time
+
+    def _fallback_routing(self, endpoints, request_stats, request):
+        session_id = request.headers.get(self.session_key, None)
+        logger.debug(f"Got session id: {session_id}")
+
+        # Update the hash ring with the current list of endpoints
+        self._update_hash_ring(endpoints)
+
+        if session_id is None:
+            # Route based on QPS if no session ID is present
+            url = self._qps_routing(endpoints, request_stats)
+        else:
+            # Use the hash ring to get the endpoint for the session ID
+            url = self.hash_ring.get_node(session_id)
+        return url
+
+
+class KvawareRouter(AsyncRoutingInterface):
     """
     Route the request to the appropriate engine URL by where the KV cache
     of the longest prefix match is found.
@@ -251,7 +446,11 @@ class KvawareRouter(RoutingInterface):
         instance_id = self.kv_manager.handle_orchestration_message(msg)
         return instance_id
 
-    async def route_request(
+    def route_request(self, endpoints: List[EndpointInfo], engine_stats: Dict[str, EngineStats],
+                      request_stats: Dict[str, RequestStats], request: Request, request_json: Dict) -> str:
+        raise NotImplementedError
+
+    async def async_route_request(
         self,
         endpoints: List[EndpointInfo],
         engine_stats: Dict[str, EngineStats],
@@ -329,7 +528,7 @@ class KvawareRouter(RoutingInterface):
             return self.instance_id_to_ip[queried_instance_ids[0]]
 
 
-class PrefixAwareRouter(RoutingInterface):
+class PrefixAwareRouter(AsyncRoutingInterface):
     """
     Route the request to the appropriate engine URL by where the longest
     prefix match is found.
@@ -345,7 +544,11 @@ class PrefixAwareRouter(RoutingInterface):
         self.hashtrie = HashTrie()
         self._initialized = True
 
-    async def route_request(
+    def route_request(self, endpoints: List[EndpointInfo], engine_stats: Dict[str, EngineStats],
+                      request_stats: Dict[str, RequestStats], request: Request, request_json: Dict) -> str:
+        raise NotImplementedError
+
+    async def async_route_request(
         self,
         endpoints: List[EndpointInfo],
         engine_stats: Dict[str, EngineStats],
@@ -461,6 +664,15 @@ def initialize_routing_logic(
     elif routing_logic == RoutingLogic.SESSION_BASED:
         logger.info(f"Initializing session-based routing logic with kwargs: {kwargs}")
         return SessionRouter(kwargs.get("session_key"))
+    elif routing_logic == RoutingLogic.TTFT:
+        logger.info("Initializing TTFT routing logic")
+        router = TtftRouter(
+            kwargs.get("lmcache_controller_ip"),
+            kwargs.get("lmcache_controller_port"),
+            kwargs.get("session_key"),
+        )
+        router.start_kv_manager()
+        return router
     elif routing_logic == RoutingLogic.KVAWARE:
         logger.info("Initializing kvaware routing logic")
         router = KvawareRouter(
