@@ -139,10 +139,7 @@ class TimePeriods:
         self.periods.append((merge_begin, merge_end))
 
     def compute_length(self) -> float:
-        length = 0
-        for period in self.periods:
-            length += period[1] - period[0]
-        return length
+        return sum([period[1] - period[0] for period in self.periods])
 
 
 class RequestStatsMonitor(metaclass=SingletonMeta):
@@ -204,7 +201,7 @@ class RequestStatsMonitor(metaclass=SingletonMeta):
         if uncached_prefix_tokens is not None:
             self.uncached_prefix_tokens[(engine_url, request_id)] = uncached_prefix_tokens
 
-        if engine_url not in self.in_prefill_requests:
+        if self.in_prefill_requests.get(engine_url, 0) == 0:
             self.in_prefill_requests[engine_url] = 1
             if uncached_prefix_tokens is not None and self.in_decoding_requests.get(engine_url, 0) == 0:
                 # assume computation begins immediately if there is no processing request
