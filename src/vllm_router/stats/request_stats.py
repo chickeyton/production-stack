@@ -126,7 +126,6 @@ class TimePeriods:
                  (period[1] >= begin and period[1] <= end)):
                 self.periods[i] = (min(period[0], begin), max(period[1], end))
                 overlap_periods.append(i)
-                break
         if len(overlap_periods) == 0:
             self.periods.append((begin, end))
             return
