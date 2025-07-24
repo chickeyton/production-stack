@@ -362,8 +362,8 @@ class RequestStatsMonitor(metaclass=SingletonMeta):
             else:
                 avg_request_prefill_tps = -1
 
-            engine_prefill_tps = self.compute_engine_prefill_tps(current_time, engine_url)
-            forecasted_queue_time = self.forecast_queue_time(engine_url, engine_prefill_tps)
+            engine_prefill_tps = self._compute_engine_prefill_tps(current_time, engine_url)
+            forecasted_queue_time = self._forecast_queue_time(engine_url, engine_prefill_tps)
 
             ret[engine_url] = RequestStats(
                 qps=qps,
@@ -383,7 +383,7 @@ class RequestStatsMonitor(metaclass=SingletonMeta):
             )
         return ret
 
-    def compute_engine_prefill_tps(self, current_time: float, engine_url: str) -> float:
+    def _compute_engine_prefill_tps(self, current_time: float, engine_url: str) -> float:
         min_start_time = current_time - self.sliding_window_width
         prefill_periods = TimePeriods()
         all_uncached_prefix_tokens = 0
@@ -402,7 +402,7 @@ class RequestStatsMonitor(metaclass=SingletonMeta):
             return all_uncached_prefix_tokens / length
         return -1
 
-    def forecast_queue_time(self, engine_url: str, engine_prefill_tps: float) -> float:
+    def _forecast_queue_time(self, engine_url: str, engine_prefill_tps: float) -> float:
         all_uncached_prefix_tokens = 0
         for (url, request_id), uncached_prefix_tokens in self.uncached_prefix_tokens.items():
             if url != engine_url or (url, request_id) in self.first_token_time:
@@ -413,6 +413,7 @@ class RequestStatsMonitor(metaclass=SingletonMeta):
         if engine_prefill_tps <= 0:
             return -1
         return all_uncached_prefix_tokens / engine_prefill_tps
+
 
 def initialize_request_stats_monitor(sliding_window_size: float):
     return RequestStatsMonitor(sliding_window_size)
