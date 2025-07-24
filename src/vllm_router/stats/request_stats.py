@@ -55,11 +55,9 @@ class RequestStats:
     # Number of swapped requests (moved from GPU to CPU)
     num_swapped_requests: int
     # Average per-request prefill TPS
-    avg_req_prefill_tps: float
-    # Engine overall prefill TPS
-    engine_prefill_tps: float
+    avg_request_prefill_tps: float
     # Forecasted queue time
-    forecast_queue_time: float
+    forecasted_queue_time: float
 
 
 class MovingAverageMonitor:
@@ -359,12 +357,13 @@ class RequestStatsMonitor(metaclass=SingletonMeta):
                 swapped = 0
 
             if engine_url in self.request_prefill_tps_monitors:
-                avg_req_prefill_tps = self.request_prefill_tps_monitors[engine_url].get_average()
+                self.request_prefill_tps_monitors[engine_url].update_no_value(current_time)
+                avg_request_prefill_tps = self.request_prefill_tps_monitors[engine_url].get_average()
             else:
-                avg_req_prefill_tps = -1
+                avg_request_prefill_tps = -1
 
             engine_prefill_tps = self.compute_engine_prefill_tps(current_time, engine_url)
-            forecast_queue_time = self.forecast_queue_time(engine_url, engine_prefill_tps)
+            forecasted_queue_time = self.forecasted_queue_time(engine_url, engine_prefill_tps)
 
             ret[engine_url] = RequestStats(
                 qps=qps,
@@ -379,9 +378,8 @@ class RequestStatsMonitor(metaclass=SingletonMeta):
                 avg_latency=avg_lat,
                 avg_itl=avg_itl_val,
                 num_swapped_requests=swapped,
-                avg_req_prefill_tps=avg_req_prefill_tps,
-                engine_prefill_tps=engine_prefill_tps,
-                forecast_queue_time=forecast_queue_time,
+                avg_request_prefill_tps=avg_request_prefill_tps,
+                forecasted_queue_time=forecasted_queue_time,
             )
         return ret
 
@@ -404,7 +402,7 @@ class RequestStatsMonitor(metaclass=SingletonMeta):
             return all_uncached_prefix_tokens / length
         return -1
 
-    def forecast_queue_time(self, engine_url: str, engine_prefill_tps: float) -> float:
+    def forecasted_queue_time(self, engine_url: str, engine_prefill_tps: float) -> float:
         all_uncached_prefix_tokens = 0
         for (url, request_id), uncached_prefix_tokens in self.uncached_prefix_tokens.items():
             if url != engine_url or (url, request_id) in self.first_token_time:

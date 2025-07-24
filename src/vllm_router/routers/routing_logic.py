@@ -265,6 +265,7 @@ class TtftRouter(AsyncRoutingInterface):
         self.session_key = session_key
         self.hash_ring = HashRing()
         self.tokenizer = None
+        self.last_request_prefill_tps = {}
         self._uncached_prefix_tokens = None
 
     @property
@@ -342,25 +343,37 @@ class TtftRouter(AsyncRoutingInterface):
 
     async def _find_best_ttft(self, endpoints, matched_infos, best_matched_info,
                               request_stats, num_prompt_token):
-        num_uncache_token = num_prompt_token - best_matched_info[1][-1][1]
-        best_ttft = float('inf')
-        best_ttft_info = None
+        stats_list = []
+        fixed_prefill_tps = -1
+        urls = []
         for instance_info in matched_infos:
             url = await self._get_instance_url(endpoints, instance_info[0])
             stats = request_stats.get(url, None)
             if stats is None:
                 raise ValueError(f"{url} provides no request stats ")
-            if stats.forcast_queue_time < 0:
-                raise ValueError(f"{url} provides no forcasted queue time")
-            if stats.avg_req_prefill_tps > 0:
-                prefill_tps = stats.avg_req_prefill_tps
+            if stats.forecasted_queue_time < 0:
+                raise ValueError(f"{url} provides no forecasted queue time")
+            if stats.avg_request_prefill_tps > 0:
+                self.last_request_prefill_tps[url] = stats.avg_request_prefill_tps
+            elif url not in self.last_request_prefill_tps:
+                fixed_prefill_tps = 10
+            urls.append(url)
+            stats_list.append(stats)
+
+        num_uncache_token = num_prompt_token - best_matched_info[1][-1][1]
+        best_ttft = float('inf')
+        best_ttft_info = None
+        for i, instance_info in enumerate(matched_infos):
+            stats = stats_list[i]
+            if fixed_prefill_tps > 0:
+                prefill_tps = fixed_prefill_tps
+            elif stats.avg_request_prefill_tps > 0:
+                prefill_tps = stats.avg_request_prefill_tps
             else:
-                prefill_tps = stats.engine_prefill_tps
-            if prefill_tps < 0:
-                raise ValueError(f"{url} provides no prefill TPS")
+                prefill_tps = self.last_request_prefill_tps[urls[i]]
             transfer_time = self._calc_transfer_time(instance_info, best_matched_info)
             compute_time = num_uncache_token / prefill_tps
-            ttft = stats.forcast_queue_time + transfer_time + compute_time
+            ttft = stats.forecasted_queue_time + transfer_time + compute_time
             if best_ttft_info is None or ttft < best_ttft:
                 best_ttft = ttft
                 best_ttft_info = instance_info
