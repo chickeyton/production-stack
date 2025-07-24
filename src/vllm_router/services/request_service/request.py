@@ -25,9 +25,11 @@ from requests import JSONDecodeError
 
 from vllm_router.log import init_logger
 from vllm_router.routers.routing_logic import (
+    AsyncRoutingInterface,
     DisaggregatedPrefillRouter,
     KvawareRouter,
     PrefixAwareRouter,
+    TtftRouter
 )
 from vllm_router.service_discovery import get_service_discovery
 from vllm_router.services.request_service.rewriter import (
@@ -36,7 +38,6 @@ from vllm_router.services.request_service.rewriter import (
 )
 from vllm_router.utils import replace_model_in_request_body, update_content_length
 
-from src.vllm_router.routers.routing_logic import AsyncRoutingInterface
 
 try:
     # Semantic cache integration
@@ -61,6 +62,7 @@ async def process_request(
     endpoint,
     background_tasks: BackgroundTasks,
     debug_request=None,
+    uncached_prefix_tokens=None,
 ):
     """
     Process a request by sending it to the chosen backend.
@@ -84,7 +86,7 @@ async def process_request(
     total_len = 0
     start_time = time.time()
     request.app.state.request_stats_monitor.on_new_request(
-        backend_url, request_id, start_time
+        backend_url, request_id, start_time, uncached_prefix_tokens
     )
     # Check if this is a streaming request
     try:
@@ -226,7 +228,8 @@ async def route_general_request(
         )
         engine_stats = request.app.state.engine_stats_scraper.get_engine_stats()
         request_stats = request.app.state.request_stats_monitor.get_request_stats(
-            time.time()
+            time.time(),
+            [endpoint.url for endpoint in endpoints],
         )
     else:
         endpoints = list(
@@ -285,6 +288,12 @@ async def route_general_request(
     logger.info(
         f"Routing request {request_id} with session id {session_id_display} to {server_url} at {curr_time}, process time = {curr_time - in_router_time:.4f}"
     )
+
+    if isinstance(request.app.state.router, TtftRouter):
+        uncached_prefix_tokens = request.app.state.router.uncached_prefix_tokens
+    else:
+        uncached_prefix_tokens = None
+
     stream_generator = process_request(
         request,
         request_body,
@@ -292,6 +301,7 @@ async def route_general_request(
         request_id,
         endpoint,
         background_tasks,
+        uncached_prefix_tokens,
     )
     headers, status_code = await anext(stream_generator)
     headers_dict = {key: value for key, value in headers.items()}

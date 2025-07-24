@@ -252,20 +252,24 @@ class TtftRouter(AsyncRoutingInterface):
 
     def __init__(
         self,
-        lmcache_controller_ip:str,
         lmcache_controller_port: int,
         session_key: str,
     ):
         logger.info(
-            f"Initializing TtftRouter with lmcache addr: {lmcache_controller_ip}:{lmcache_controller_port}"
+            f"Initializing TtftRouter with lmcache addr: 0.0.0.0:{lmcache_controller_port}"
         )
         self.kv_manager = controller_manager.LMCacheControllerManager(
-            f"{lmcache_controller_ip}:{lmcache_controller_port}"
+            f"0.0.0.0:{lmcache_controller_port}"
         )
         self.instance_id_to_url = {}
         self.session_key = session_key
         self.hash_ring = HashRing()
         self.tokenizer = None
+        self._uncached_prefix_tokens = None
+
+    @property
+    def uncached_prefix_tokens(self):
+        return self._uncached_prefix_tokens
 
     def start_kv_manager(self):
         """
@@ -315,9 +319,13 @@ class TtftRouter(AsyncRoutingInterface):
             ret_msg = await self.kv_manager.handle_orchestration_message(msg)
             matched_infos = ret_msg.matched_info
             best_matched_info = self._find_best_matched(matched_infos)
-            best_ttft_info = self._find_best_ttft(endpoints, matched_infos, best_matched_info,
-                                                  request_stats, len(token_ids))
-            return await self._get_instance_url(endpoints, best_ttft_info[0])
+            best_ttft_info, num_uncached_token = (
+                self._find_best_ttft(endpoints, matched_infos, best_matched_info,
+                                     request_stats, len(token_ids)))
+
+            url = await self._get_instance_url(endpoints, best_ttft_info[0])
+            self._uncached_prefix_tokens = num_uncached_token
+            return url
         except ValueError:
             logger.info("Fallback to QPS routing due to:")
             logger.info(traceback.format_exc())
@@ -334,7 +342,7 @@ class TtftRouter(AsyncRoutingInterface):
 
     async def _find_best_ttft(self, endpoints, matched_infos, best_matched_info,
                               request_stats, num_prompt_token):
-        num_uncomputed_token = num_prompt_token - best_matched_info[1][-1][1]
+        num_uncache_token = num_prompt_token - best_matched_info[1][-1][1]
         best_ttft = float('inf')
         best_ttft_info = None
         for instance_info in matched_infos:
@@ -342,19 +350,23 @@ class TtftRouter(AsyncRoutingInterface):
             stats = request_stats.get(url, None)
             if stats is None:
                 raise ValueError(f"{url} provides no request stats ")
-            if stats.queue_time is None:
-                raise ValueError(f"{url} provides no queue time")
-            if stats.prefill_tps is None:
+            if stats.forcast_queue_time < 0:
+                raise ValueError(f"{url} provides no forcasted queue time")
+            if stats.avg_req_prefill_tps > 0:
+                prefill_tps = stats.avg_req_prefill_tps
+            else:
+                prefill_tps = stats.engine_prefill_tps
+            if prefill_tps < 0:
                 raise ValueError(f"{url} provides no prefill TPS")
             transfer_time = self._calc_transfer_time(instance_info, best_matched_info)
-            compute_time = num_uncomputed_token / stats.prefill_tps
-            ttft = stats.queue_time + transfer_time + compute_time
+            compute_time = num_uncache_token / prefill_tps
+            ttft = stats.forcast_queue_time + transfer_time + compute_time
             if best_ttft_info is None or ttft < best_ttft:
                 best_ttft = ttft
                 best_ttft_info = instance_info
         if best_ttft_info is None:
             raise ValueError(f"no best TTFT instance was found")
-        return best_ttft_info
+        return best_ttft_info, num_uncache_token
 
     async def _get_instance_url(self, endpoints, instance_id):
         url = self.instance_id_to_url.get(instance_id, None)
@@ -667,7 +679,6 @@ def initialize_routing_logic(
     elif routing_logic == RoutingLogic.TTFT:
         logger.info("Initializing TTFT routing logic")
         router = TtftRouter(
-            kwargs.get("lmcache_controller_ip"),
             kwargs.get("lmcache_controller_port"),
             kwargs.get("session_key"),
         )
