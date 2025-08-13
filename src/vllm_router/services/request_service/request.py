@@ -28,6 +28,7 @@ from vllm_router.routers.routing_logic import (
     DisaggregatedPrefillRouter,
     KvawareRouter,
     PrefixAwareRouter,
+    TtftRouter,
 )
 from vllm_router.service_discovery import get_service_discovery
 from vllm_router.services.request_service.rewriter import (
@@ -61,6 +62,7 @@ async def process_request(
     endpoint,
     background_tasks: BackgroundTasks,
     debug_request=None,
+    uncached_prefix_tokens=None,
 ):
     """
     Process a request by sending it to the chosen backend.
@@ -73,7 +75,7 @@ async def process_request(
         endpoint: The endpoint to send the request to on the backend.
         debug_request: The original request object from the client, used for
             optional debug logging.
-
+        uncached_prefix_tokens: The number of uncached prefix tokens.
     Yields:
         The response headers and status code, followed by the response content.
 
@@ -84,7 +86,7 @@ async def process_request(
     total_len = 0
     start_time = time.time()
     request.app.state.request_stats_monitor.on_new_request(
-        backend_url, request_id, start_time
+        backend_url, request_id, start_time, uncached_prefix_tokens
     )
     # Check if this is a streaming request
     try:
@@ -224,7 +226,8 @@ async def route_general_request(
         )
         engine_stats = request.app.state.engine_stats_scraper.get_engine_stats()
         request_stats = request.app.state.request_stats_monitor.get_request_stats(
-            time.time()
+            time.time(),
+            [endpoint.url for endpoint in endpoints],
         )
     else:
         endpoints = list(
@@ -272,6 +275,8 @@ async def route_general_request(
     )
     session_id_display = session_id if session_id is not None else "None"
 
+    uncached_prefix_tokens = getattr(request.app.state.router, "uncached_prefix_tokens", None)
+
     # Debug logging to help troubleshoot session ID extraction
     logger.debug(
         f"Debug session extraction - Router type: {type(request.app.state.router).__name__}"
@@ -290,6 +295,7 @@ async def route_general_request(
         request_id,
         endpoint,
         background_tasks,
+        uncached_prefix_tokens,
     )
     headers, status = await anext(stream_generator)
     headers_dict = {key: value for key, value in headers.items()}

@@ -14,7 +14,8 @@
 import time
 from collections import deque
 from dataclasses import dataclass
-from typing import Deque, Dict, Tuple
+from numbers import Number
+from typing import Deque, Dict, Tuple, Set, List
 
 from vllm_router.log import init_logger
 
@@ -53,6 +54,42 @@ class RequestStats:
     avg_itl: float
     # Number of swapped requests (moved from GPU to CPU)
     num_swapped_requests: int
+    # Forecasted queue time
+    forecasted_queue_time: float
+
+
+class TimePeriods:
+    """
+    Utility for computing length of overlapping time periods.
+    """
+    def __init__(self):
+        self.periods: List[Tuple[float, float]] = []
+
+    def union(self, begin: float, end: float):
+        overlap_periods = []
+        for i, period in enumerate(self.periods):
+            if ((begin >= period[0] and begin <= period[1]) or
+                    (end >= period[0] and end <= period[1])) or
+                ((period[0] >= begin and period[0] <= end) or
+                 (period[1] >= begin and period[1] <= end)):
+                self.periods[i] = (min(period[0], begin), max(period[1], end))
+                overlap_periods.append(i)
+        if len(overlap_periods) == 0:
+            self.periods.append((begin, end))
+            return
+        if len(overlap_periods) == 1:
+            return
+        # merge all overlapping periods
+        merge_begin = min([self.periods[i][0] for i in overlap_periods])
+        merge_end = max([self.periods[i][1] for i in overlap_periods])
+
+        remove_indices = set(overlap_periods)
+        new_periods = [period for i, period in enumerate(self.periods) if i not in remove_indices]
+        self.periods = new_periods
+        self.periods.append((merge_begin, merge_end))
+
+    def compute_length(self) -> float:
+        return sum([period[1] - period[0] for period in self.periods])
 
 
 class MovingAverageMonitor:
@@ -127,6 +164,8 @@ class RequestStatsMonitor(metaclass=SingletonMeta):
         self.request_start_time: Dict[Tuple[str, str], float] = {}
         # Record time when first token is received: (engine_url, request_id) -> timestamp
         self.first_token_time: Dict[Tuple[str, str], float] = {}
+        # The number of uncached prefix tokens
+        self.uncached_prefix_tokens: Dict[Tuple[str, str], int] = {}
 
         # Number of requests in different stages (from the start of the router)
         self.in_prefill_requests: Dict[str, int] = {}
@@ -142,7 +181,7 @@ class RequestStatsMonitor(metaclass=SingletonMeta):
         self.first_query_time: float = None
         self._initialized = True
 
-    def on_new_request(self, engine_url: str, request_id: str, timestamp: float):
+    def on_new_request(self, engine_url: str, request_id: str, timestamp: float, uncached_prefix_tokens:int = None):
         """
         Tell the monitor that a new request has been created.
 
@@ -150,8 +189,12 @@ class RequestStatsMonitor(metaclass=SingletonMeta):
             engine_url: The URL of the serving engine
             request_id: The global request ID
             timestamp: the timestamp when the request was created
+            uncached_prefix_tokens: The number of uncached prefix tokens
         """
         self.request_start_time[(engine_url, request_id)] = timestamp
+
+        if uncached_prefix_tokens is not None:
+            self.uncached_prefix_tokens[(engine_url, request_id)] = uncached_prefix_tokens
 
         if engine_url not in self.in_prefill_requests:
             self.in_prefill_requests[engine_url] = 0
@@ -197,7 +240,9 @@ class RequestStatsMonitor(metaclass=SingletonMeta):
                 self.sliding_window_size
             )
         # Update TTFT as time from request start to first token
-        ttft = timestamp - self.request_start_time[(engine_url, request_id)]
+        # ttft = timestamp - self.request_start_time[(engine_url, request_id)]
+        start_time = self.request_start_time[(engine_url, request_id)]
+        ttft = timestamp - start_time
         self.ttft_monitors[engine_url].update(timestamp, ttft)
 
     def on_request_complete(self, engine_url: str, request_id: str, timestamp: float):
@@ -235,12 +280,13 @@ class RequestStatsMonitor(metaclass=SingletonMeta):
             self.swapped_requests[engine_url] = 0
         self.swapped_requests[engine_url] += 1
 
-    def get_request_stats(self, current_time: float) -> Dict[str, RequestStats]:
+    def get_request_stats(self, current_time: float, urls: List[str] = None) -> Dict[str, RequestStats]:
         """
         Get the request statistics for each serving engine
 
         Args:
             current_time: The current timestamp in seconds
+            urls: The URLs of engines
 
         Returns:
             A dictionary where the key is the serving engine URL and the value
@@ -248,10 +294,11 @@ class RequestStatsMonitor(metaclass=SingletonMeta):
             The TTFT and inter token latency will be -1 if there is no requests
             finished in the sliding window.
         """
+        if urls is None:
+            urls = set(self.in_prefill_requests.keys()).union(
+                set(self.in_decoding_requests.keys())
+            )
         ret = {}
-        urls = set(self.in_prefill_requests.keys()).union(
-            set(self.in_decoding_requests.keys())
-        )
         for engine_url in urls:
             if engine_url not in self.qps_monitors:
                 qps = -1
@@ -289,6 +336,9 @@ class RequestStatsMonitor(metaclass=SingletonMeta):
             else:
                 swapped = 0
 
+            engine_prefill_tps = self._compute_engine_prefill_tps(current_time, engine_url)
+            forecasted_queue_time = self._forecast_queue_time(engine_url, engine_prefill_tps)
+
             ret[engine_url] = RequestStats(
                 qps=qps,
                 ttft=ttft,
@@ -302,8 +352,40 @@ class RequestStatsMonitor(metaclass=SingletonMeta):
                 avg_latency=avg_lat,
                 avg_itl=avg_itl_val,
                 num_swapped_requests=swapped,
+                forecasted_queue_time=forecasted_queue_time,
             )
         return ret
+
+    def _compute_engine_prefill_tps(self, current_time: float, engine_url: str) -> float:
+        min_start_time = current_time - self.sliding_window_width
+        prefill_periods = TimePeriods()
+        all_uncached_prefix_tokens = 0
+        for (url, request_id), start_time in self.request_start_time.items():
+            if url != engine_url or start_time < min_start_time:
+                continue
+            if ((url, request_id) not in self.first_token_time or
+                    (url, request_id) not in self.uncached_prefix_tokens):
+                continue
+
+            prefill_periods.union(start_time, self.first_token_time[(url, request_id)])
+            all_uncached_prefix_tokens += self.uncached_prefix_tokens[(url, request_id)]
+
+        length = prefill_periods.compute_length()
+        if length > 0:
+            return all_uncached_prefix_tokens / length
+        return -1
+
+    def _forecast_queue_time(self, engine_url: str, engine_prefill_tps: float) -> float:
+        all_uncached_prefix_tokens = 0
+        for (url, request_id), uncached_prefix_tokens in self.uncached_prefix_tokens.items():
+            if url != engine_url or (url, request_id) in self.first_token_time:
+                continue
+            all_uncached_prefix_tokens += uncached_prefix_tokens
+        if all_uncached_prefix_tokens <= 0:
+            return 0
+        if engine_prefill_tps <= 0:
+            return -1
+        return all_uncached_prefix_tokens / engine_prefill_tps
 
 
 def initialize_request_stats_monitor(sliding_window_size: float):
