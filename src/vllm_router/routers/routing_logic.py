@@ -688,6 +688,7 @@ def get_routing_logic() -> RoutingInterface:
         KvawareRouter,
         PrefixAwareRouter,
         DisaggregatedPrefillRouter,
+        TtftRouter,
     ):
         if cls in SingletonABCMeta._instances:
             return cls()
