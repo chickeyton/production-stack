@@ -495,7 +495,7 @@ class TtftRouter(RoutingInterface):
         self.thread = threading.Thread(target=self.loop.run_forever, daemon=True)
         self.thread.start()
         asyncio.run_coroutine_threadsafe(self.kv_manager.start_all(), self.loop)
-        self.tokenizer = AutoTokenizer.from_pretrained(self.tokenizer_name)
+        # self.tokenizer = AutoTokenizer.from_pretrained(self.tokenizer_name)
 
     async def route_request(
         self,
@@ -521,6 +521,10 @@ class TtftRouter(RoutingInterface):
             request_json (Dist): The request body (needed for finding the
             longest prefix match)
         """
+        if self.tokenizer is None:
+            print(f">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> {endpoints[0].model_names[0]}")
+            self.tokenizer = AutoTokenizer.from_pretrained(endpoints[0].model_names[0])
+
         try:
             if request_stats is None:
                 ValueError("no request stats was provided")
