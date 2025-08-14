@@ -529,7 +529,7 @@ class TtftRouter(RoutingInterface):
             ret_msg = await self.kv_manager.handle_orchestration_message(msg)
             matched_infos = ret_msg.matched_info
             best_matched_info = self._find_best_matched(matched_infos)
-            best_ttft_info, num_uncached_token =
+            best_ttft_info, num_uncached_token = \
                 self._find_best_ttft(endpoints, matched_infos, best_matched_info,
                                      request_stats, len(token_ids))
             self._uncached_prefix_tokens = num_uncached_token
