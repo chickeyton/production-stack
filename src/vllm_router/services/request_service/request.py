@@ -37,8 +37,6 @@ from vllm_router.services.request_service.rewriter import (
 )
 from vllm_router.utils import replace_model_in_request_body, update_content_length
 
-from src.vllm_router.routers.routing_logic import TtftRouter
-
 try:
     # Semantic cache integration
     from vllm_router.experimental.semantic_cache_integration import (
