@@ -361,7 +361,7 @@ class RequestStatsMonitor(metaclass=SingletonMeta):
         return ret
 
     def _calc_engine_prefill_tps(self, current_time: float, engine_url: str) -> float:
-        min_start_time = current_time - self.sliding_window_width
+        min_start_time = current_time - self.sliding_window_size
         prefill_periods = TimePeriods()
         all_uncached_prefix_tokens = 0
         for (url, request_id), start_time in self.request_start_time.items():
