@@ -490,7 +490,7 @@ class TtftRouter(RoutingInterface):
         Start the kv manager
         """
         self.loop = asyncio.new_event_loop()
-        self.thread = threading.Thread(target=self.loop.run_forever, deamon=True)
+        self.thread = threading.Thread(target=self.loop.run_forever, daemon=True)
         self.thread.start()
         asyncio.run_coroutine_threadsafe(self.kv_manager.start_all(), self.loop)
 
