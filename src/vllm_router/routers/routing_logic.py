@@ -472,6 +472,7 @@ class TtftRouter(RoutingInterface):
         self,
         lmcache_contorller_port: int,
         session_key: str,
+        tokenizer_name: str,
     ):
         logger.info(
             f"Initializing TtftRouter with lmcache addr: 0.0.0.0:{lmcache_contorller_port}"
@@ -482,10 +483,11 @@ class TtftRouter(RoutingInterface):
         self.instance_id_to_url = {}
         self.session_key = session_key
         self.hash_ring = HashRing()
+        self.tokenizer_name = tokenizer_name
         self.tokenizer = None
         self.uncached_prefix_tokens = None
 
-    def start_kv_manager(self):
+    def start(self):
         """
         Start the kv manager
         """
@@ -493,6 +495,7 @@ class TtftRouter(RoutingInterface):
         self.thread = threading.Thread(target=self.loop.run_forever, daemon=True)
         self.thread.start()
         asyncio.run_coroutine_threadsafe(self.kv_manager.start_all(), self.loop)
+        self.tokenizer = AutoTokenizer.from_pretrained(self.tokenizer_name)
 
     async def route_request(
         self,
@@ -521,8 +524,6 @@ class TtftRouter(RoutingInterface):
         try:
             if request_stats is None:
                 ValueError("no request stats was provided")
-            if self.tokenizer is None:
-                self.tokenizer = AutoTokenizer.from_pretrained(endpoints[0].model_names[0])
 
             token_ids = self.tokenizer.encode(request_json["prompt"])
             msg = FullLookupMsg(event_id="", tokens=token_ids)
@@ -662,9 +663,11 @@ def initialize_routing_logic(
     elif routing_logic == RoutingLogic.TTFT:
         logger.info("Initializing ttft routing logic")
         router = TtftRouter(
-            kwargs.get("lmcache_controller_port"), kwargs.get("session_key")
+            kwargs.get("lmcache_controller_port"),
+            kwargs.get("session_key"),
+            kwargs.get("tokenizer"),
         )
-        router.start_kv_manager()
+        router.start()
         return router
     else:
         raise ValueError(f"Invalid routing logic {routing_logic}")
