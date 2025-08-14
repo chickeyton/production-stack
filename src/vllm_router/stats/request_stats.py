@@ -54,8 +54,10 @@ class RequestStats:
     avg_itl: float
     # Number of swapped requests (moved from GPU to CPU)
     num_swapped_requests: int
-    # Forecasted queue time
-    forecasted_queue_time: float
+    # Engine prefill TPS
+    engine_prefill_tps: float
+    # Uncomputed prefix tokens
+    uncomputed_prefix_tokens: int
 
 
 class TimePeriods:
@@ -336,8 +338,9 @@ class RequestStatsMonitor(metaclass=SingletonMeta):
             else:
                 swapped = 0
 
-            engine_prefill_tps = self._compute_engine_prefill_tps(current_time, engine_url)
-            forecasted_queue_time = self._forecast_queue_time(engine_url, engine_prefill_tps)
+            engine_prefill_tps = self._calc_engine_prefill_tps(current_time, engine_url)
+            uncomputed_prefix_tokens = self._get_uncomputed_prefix_tokens(engine_url)
+            # forecasted_queue_time = self._forecast_queue_time(engine_url, engine_prefill_tps)
 
             ret[engine_url] = RequestStats(
                 qps=qps,
@@ -352,11 +355,12 @@ class RequestStatsMonitor(metaclass=SingletonMeta):
                 avg_latency=avg_lat,
                 avg_itl=avg_itl_val,
                 num_swapped_requests=swapped,
-                forecasted_queue_time=forecasted_queue_time,
+                engine_prefill_tps=engine_prefill_tps,
+                uncomputed_prefix_tokens=uncomputed_prefix_tokens,
             )
         return ret
 
-    def _compute_engine_prefill_tps(self, current_time: float, engine_url: str) -> float:
+    def _calc_engine_prefill_tps(self, current_time: float, engine_url: str) -> float:
         min_start_time = current_time - self.sliding_window_width
         prefill_periods = TimePeriods()
         all_uncached_prefix_tokens = 0
@@ -375,17 +379,13 @@ class RequestStatsMonitor(metaclass=SingletonMeta):
             return all_uncached_prefix_tokens / length
         return -1
 
-    def _forecast_queue_time(self, engine_url: str, engine_prefill_tps: float) -> float:
-        all_uncached_prefix_tokens = 0
+    def _get_uncomputed_prefix_tokens(self, engine_url: str) -> int:
+        uncomputed_prefix_tokens = 0
         for (url, request_id), uncached_prefix_tokens in self.uncached_prefix_tokens.items():
             if url != engine_url or (url, request_id) in self.first_token_time:
                 continue
-            all_uncached_prefix_tokens += uncached_prefix_tokens
-        if all_uncached_prefix_tokens <= 0:
-            return 0
-        if engine_prefill_tps <= 0:
-            return -1
-        return all_uncached_prefix_tokens / engine_prefill_tps
+            uncomputed_prefix_tokens += uncached_prefix_tokens
+        return uncomputed_prefix_tokens
 
 
 def initialize_request_stats_monitor(sliding_window_size: float):
