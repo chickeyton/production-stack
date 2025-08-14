@@ -582,12 +582,12 @@ class TtftRouter(RoutingInterface):
                 best_ttft_info = instance_info
         if best_ttft_info is None:
             raise ValueError(f"no best TTFT instance was found")
-        return best_ttft_info, num_uncached_token
+        yield best_ttft_info, num_uncached_token
 
     async def _get_instance_url(self, endpoints, instance_id):
         url = self.instance_id_to_url.get(instance_id, None)
         if url is not None:
-            return url
+            yield url
         for endpoint in endpoints:
             msg = QueryInstMsg(
                 ip=endpoint.url.split(f":{endpoint.url.split(":")[-1]}")[
@@ -600,7 +600,7 @@ class TtftRouter(RoutingInterface):
                 url = endpoint.url
         if url is None:
             raise ValueError(f"cannot resolve URL for {instance_id}")
-        return url
+        yield url
 
     def _calc_transfer_time(self, instance_info, best_matched_info):
         transfer_time = 0
