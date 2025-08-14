@@ -522,7 +522,6 @@ class TtftRouter(RoutingInterface):
             longest prefix match)
         """
         if self.tokenizer is None:
-            print(f">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> {endpoints[0].model_names[0]}")
             self.tokenizer = AutoTokenizer.from_pretrained(endpoints[0].model_names[0])
 
         try:
@@ -587,12 +586,12 @@ class TtftRouter(RoutingInterface):
                 best_ttft_info = instance_info
         if best_ttft_info is None:
             raise ValueError(f"no best TTFT instance was found")
-        yield best_ttft_info, num_uncached_token
+        return best_ttft_info, num_uncached_token
 
     async def _get_instance_url(self, endpoints, instance_id):
         url = self.instance_id_to_url.get(instance_id, None)
         if url is not None:
-            yield url
+            return url
         for endpoint in endpoints:
             msg = QueryInstMsg(
                 ip=endpoint.url.split(f":{endpoint.url.split(":")[-1]}")[
@@ -605,7 +604,7 @@ class TtftRouter(RoutingInterface):
                 url = endpoint.url
         if url is None:
             raise ValueError(f"cannot resolve URL for {instance_id}")
-        yield url
+        return url
 
     def _calc_transfer_time(self, instance_info, best_matched_info):
         transfer_time = 0
