@@ -525,7 +525,7 @@ class TtftRouter(RoutingInterface):
                 self.tokenizer = AutoTokenizer.from_pretrained(endpoints[0].model_names[0])
 
             token_ids = self.tokenizer.encode(request_json["prompt"])
-            msg = FullLookupMsg(tokens=token_ids)
+            msg = FullLookupMsg(event_id="", tokens=token_ids)
             ret_msg = await self.kv_manager.handle_orchestration_message(msg)
             matched_infos = ret_msg.matched_info
             best_matched_info = self._find_best_matched(matched_infos)
