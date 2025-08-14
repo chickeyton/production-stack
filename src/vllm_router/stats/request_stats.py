@@ -70,9 +70,9 @@ class TimePeriods:
     def union(self, begin: float, end: float):
         overlap_periods = []
         for i, period in enumerate(self.periods):
-            if ((begin >= period[0] and begin <= period[1]) or
-                    (end >= period[0] and end <= period[1])) or
-                ((period[0] >= begin and period[0] <= end) or
+            if ((begin >= period[0] and begin <= period[1]) or \
+                    (end >= period[0] and end <= period[1])) or \
+                ((period[0] >= begin and period[0] <= end) or \
                  (period[1] >= begin and period[1] <= end)):
                 self.periods[i] = (min(period[0], begin), max(period[1], end))
                 overlap_periods.append(i)
