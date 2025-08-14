@@ -220,6 +220,12 @@ def parse_args():
         help="The key (in the header) to identify a session.",
     )
     parser.add_argument(
+        "--tokenizer",
+        type=str,
+        default=None,
+        help="The tokenizer model.",
+    )
+    parser.add_argument(
         "--callbacks",
         type=str,
         default=None,
