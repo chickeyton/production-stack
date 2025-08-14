@@ -530,8 +530,8 @@ class TtftRouter(RoutingInterface):
             matched_infos = ret_msg.matched_info
             best_matched_info = self._find_best_matched(matched_infos)
             best_ttft_info, num_uncached_token = \
-                self._find_best_ttft(endpoints, matched_infos, best_matched_info,
-                                     request_stats, len(token_ids))
+                await self._find_best_ttft(endpoints, matched_infos, best_matched_info,
+                                           request_stats, len(token_ids))
             self._uncached_prefix_tokens = num_uncached_token
             url = await self._get_instance_url(endpoints, best_ttft_info[0])
 
