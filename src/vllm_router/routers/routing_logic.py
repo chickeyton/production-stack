@@ -543,7 +543,7 @@ class TtftRouter(RoutingInterface):
         except ValueError:
             logger.info("Fallback to QPS routing due to:")
             logger.info(traceback.format_exc())
-            return self._fallback_routing(endpoints, request_stats, requests)
+            return self._fallback_routing(endpoints, request_stats, request)
 
     def _find_best_matched(self, matched_infos):
         best_matched_info = None
