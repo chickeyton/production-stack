@@ -532,7 +532,9 @@ class TtftRouter(RoutingInterface):
             msg = FullLookupMsg(event_id="", tokens=token_ids)
             ret_msg = await self.kv_manager.handle_orchestration_message(msg)
             matched_infos = ret_msg.matched_info
+            print(f">>>>>>>>>>>>>>>>>>>>>>> matched_infos={matched_infos}")
             best_matched_info = self._find_best_matched(matched_infos)
+            print(f">>>>>>>>>>>>>>>>>>>>>>> matched_infos={best_matched_info}")
             best_ttft_info, num_uncached_token = \
                 await self._find_best_ttft(endpoints, matched_infos, best_matched_info,
                                            request_stats, len(token_ids))
