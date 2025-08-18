@@ -594,6 +594,7 @@ class TtftRouter(RoutingInterface):
             return url
         for endpoint in endpoints:
             msg = QueryInstMsg(
+                event_id="",
                 ip=endpoint.url.split(f":{endpoint.url.split(":")[-1]}")[
                     0
                 ].split("//")[1]
