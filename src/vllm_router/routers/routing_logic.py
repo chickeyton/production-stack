@@ -550,9 +550,9 @@ class TtftRouter(RoutingInterface):
         for instance_info in matched_infos:
             if best_matched_info is None or instance_info[1][-1][1] > best_matched_info[1][-1][1]:
                 best_matched_info = instance_info
-            if best_matched_info is None:
-                raise ValueError("no best matched instance was found")
-            return best_matched_info
+        if best_matched_info is None:
+            raise ValueError("no best matched instance was found")
+        return best_matched_info
 
     async def _find_best_ttft(self, endpoints, matched_infos, best_matched_info,
                               request_stats, num_prompt_token):
