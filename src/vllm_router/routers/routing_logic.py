@@ -587,6 +587,15 @@ class TtftRouter(RoutingInterface):
                 forecasted_queue_time = (stats.uncomputed_prefix_tokens /
                                          stats.engine_prefill_tps)
             ttft = forecasted_queue_time + transfer_time
+
+            print(f"-------------- instance {i} estimations --------------")
+            print(f"num_uncached_token: {num_uncached_token}")
+            print(f"uncomputed_prefix_tokens: {stats.uncomputed_prefix_tokens}")
+            print(f"engine_prefill_tps: {stats.engine_prefill_tps}")
+            print(f"transfer_time: {transfer_time}")
+            print(f"forecasted_queue_time: {forecasted_queue_time}")
+            print(f"ttft: {ttft}")
+
             if best_ttft_info is None or ttft < best_ttft:
                 best_ttft = ttft
                 best_ttft_info = instance_info
@@ -620,11 +629,11 @@ class TtftRouter(RoutingInterface):
                 continue
             # TODO better estimations
             if chunk[0] == "cpu":
-                transfer_time += 1
+                transfer_time += 0.01
             elif chunk[1] == "disk":
-                transfer_time += 2
+                transfer_time += 0.015
             else:
-                transfer_time += 1
+                transfer_time += 0.01
         return transfer_time
 
     def _fallback_routing(self, endpoints, request_stats, request):
