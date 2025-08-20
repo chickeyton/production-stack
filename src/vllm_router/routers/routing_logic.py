@@ -628,12 +628,12 @@ class TtftRouter(RoutingInterface):
         for chunk in best_matched_info[1]:
             print(f"chunk[0]: {chunk[0]}")
             print(f"chunk[1]: {chunk[1]}")
-            if chunk[1] < instance_info[1][-1][1]:
+            if chunk[1] <= instance_info[1][-1][1]:
                 continue
             # TODO better estimations
-            if chunk[0] == "cpu":
+            if chunk[0] == "LocalCpuBackend":
                 transfer_time += 0.01
-            elif chunk[0] == "disk":
+            elif chunk[0] == "LocalDiskBackend":
                 transfer_time += 0.015
             else:
                 transfer_time += 0.01
