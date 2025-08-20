@@ -623,17 +623,21 @@ class TtftRouter(RoutingInterface):
         return url
 
     def _calc_transfer_time(self, instance_info, best_matched_info):
+        print(f"instance_info[1][-1][1]: {instance_info[1][-1][1]}")
         transfer_time = 0
         for chunk in best_matched_info[1]:
+            print(f"chunk[0]: {chunk[0]}")
+            print(f"chunk[1]: {chunk[1]}")
             if chunk[1] < instance_info[1][-1][1]:
                 continue
             # TODO better estimations
             if chunk[0] == "cpu":
                 transfer_time += 0.01
-            elif chunk[1] == "disk":
+            elif chunk[0] == "disk":
                 transfer_time += 0.015
             else:
                 transfer_time += 0.01
+            print(f"transfer_time: {transfer_time}")
         return transfer_time
 
     def _fallback_routing(self, endpoints, request_stats, request):
