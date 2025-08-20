@@ -473,7 +473,7 @@ class TtftRouter(RoutingInterface):
         lmcache_contorller_port: int,
         session_key: str,
         tokenizer_name: str,
-        instance_id_to_url: Optional[str, str] = None,
+        instance_id_to_url: Optional[Dict[str, str]] = None,
     ):
         logger.info(
             f"Initializing TtftRouter with lmcache addr: 0.0.0.0:{lmcache_contorller_port}"
