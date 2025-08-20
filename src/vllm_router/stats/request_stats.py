@@ -361,20 +361,28 @@ class RequestStatsMonitor(metaclass=SingletonMeta):
         return ret
 
     def _calc_engine_prefill_tps(self, current_time: float, engine_url: str) -> float:
+        print(f"**************_calc_engine_prefill_tps**************")
+        print(f"engine_url:{engine_url} current_time:f{current_time} sliding_window_size:f{self.sliding_window_size}")
         min_start_time = current_time - self.sliding_window_size
+        print(f"min_start_time:{min_start_time}")
         prefill_periods = TimePeriods()
         all_uncached_prefix_tokens = 0
         for (url, request_id), start_time in self.request_start_time.items():
+            print(f"url:{url} request_id:{request_id} start_time:{start_time}")
             if url != engine_url or start_time < min_start_time:
+                print("skip 1")
                 continue
             if ((url, request_id) not in self.first_token_time or
                     (url, request_id) not in self.uncached_prefix_tokens):
+                print("skip 2")
                 continue
 
             prefill_periods.union(start_time, self.first_token_time[(url, request_id)])
             all_uncached_prefix_tokens += self.uncached_prefix_tokens[(url, request_id)]
+            print(f"all_uncached_prefix_tokens:{all_uncached_prefix_tokens}")
 
         length = prefill_periods.compute_length()
+        print(f"all_uncached_prefix_tokens:{all_uncached_prefix_tokens} prefill_periods length:{length}")
         if length > 0:
             return all_uncached_prefix_tokens / length
         return -1
