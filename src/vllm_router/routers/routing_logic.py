@@ -19,7 +19,7 @@ import math
 import random
 import threading
 import traceback
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from fastapi import Request
 
@@ -473,6 +473,7 @@ class TtftRouter(RoutingInterface):
         lmcache_contorller_port: int,
         session_key: str,
         tokenizer_name: str,
+        instance_id_to_url: Optional[str, str] = None,
     ):
         logger.info(
             f"Initializing TtftRouter with lmcache addr: 0.0.0.0:{lmcache_contorller_port}"
@@ -480,7 +481,10 @@ class TtftRouter(RoutingInterface):
         self.kv_manager = controller_manager.LMCacheControllerManager(
             f"0.0.0.0:{lmcache_contorller_port}"
         )
-        self.instance_id_to_url = {}
+        if instance_id_to_url is None:
+            self.instance_id_to_url = {}
+        else:
+            self.instance_id_to_url = instance_id_to_url
         self.session_key = session_key
         self.hash_ring = HashRing()
         self.tokenizer_name = tokenizer_name
@@ -522,7 +526,7 @@ class TtftRouter(RoutingInterface):
             longest prefix match)
         """
         if self.tokenizer is None:
-            self.tokenizer = AutoTokenizer.from_pretrained(endpoints[0].model_names[0])
+            self.tokenizer = AutoTokenizer.from_pretrained(self.tokenizer_name)
 
         try:
             if request_stats is None:
@@ -672,6 +676,7 @@ def initialize_routing_logic(
             kwargs.get("lmcache_controller_port"),
             kwargs.get("session_key"),
             kwargs.get("tokenizer"),
+            kwargs.get("instance_id_to_url"),
         )
         router.start()
         return router
@@ -707,3 +712,6 @@ def get_routing_logic() -> RoutingInterface:
         if cls in SingletonABCMeta._instances:
             return cls()
     raise ValueError("The global router has not been initialized")
+
+def create_instance_id_to_url(kwargs):
+    kwargs
