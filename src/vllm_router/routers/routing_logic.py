@@ -526,7 +526,7 @@ class TtftRouter(RoutingInterface):
             longest prefix match)
         """
         if self.tokenizer is None:
-            self.tokenizer = AutoTokenizer.from_pretrained(self.tokenizer_name)
+            self.tokenizer = AutoTokenizer.from_pretrained(endpoints[0].model_names[0])
 
         try:
             if request_stats is None:
