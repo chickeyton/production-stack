@@ -540,12 +540,9 @@ class TtftRouter(RoutingInterface):
             best_matched_info = self._find_best_matched(matched_infos)
             print(f">>>>>>>>>>>>>>>>>>>>>>> best_matched_info={best_matched_info}")
             self.uncached_prefix_tokens = len(token_ids) - best_matched_info[1][-1][1]
-            best_ttft_info = \
-                await self._find_best_ttft(endpoints, matched_infos, best_matched_info,
-                                           request_stats)
-            url = await self._get_instance_url(endpoints, best_ttft_info[0])
-
-            return url
+            best_ttft_url = await self._find_best_ttft(endpoints, matched_infos,
+                                                       best_matched_info, request_stats)
+            return best_ttft_url
         except ValueError:
             logger.info("Fallback to QPS routing due to:")
             logger.info(traceback.format_exc())
@@ -562,45 +559,63 @@ class TtftRouter(RoutingInterface):
 
     async def _find_best_ttft(self, endpoints, matched_infos, best_matched_info,
                               request_stats):
-        stats_list = []
-        urls = []
-        for instance_info in matched_infos:
-            url = await self._get_instance_url(endpoints, instance_info[0])
+        matched_stats = []
+        matched_urls = []
+        for matched_info in matched_infos:
+            url = await self._get_instance_url(endpoints, matched_info[0])
             stats = request_stats.get(url, None)
             if stats is None:
                 raise ValueError(f"{url} provides no request stats ")
             if stats.uncomputed_prefix_tokens > 0 and stats.engine_prefill_tps <= 0:
                 raise ValueError(f"{url} provides no way to forecasted queue time")
-            urls.append(url)
-            stats_list.append(stats)
+            matched_urls.append(url)
+            matched_stats.append(stats)
 
+        # cache matched pass
         best_ttft = float('inf')
-        best_ttft_info = None
-        for i, instance_info in enumerate(matched_infos):
-            stats = stats_list[i]
-            transfer_time = self._calc_transfer_time(instance_info, best_matched_info)
-            # TODO take computation time of num_uncached_token into account
-            if stats.uncomputed_prefix_tokens == 0:
-                forecasted_queue_time = 0
-            else:
-                forecasted_queue_time = (stats.uncomputed_prefix_tokens /
-                                         stats.engine_prefill_tps)
-            ttft = forecasted_queue_time + transfer_time
-
-            print(f"-------------- instance {i} estimations --------------")
-            # print(f"num_uncached_token: {num_uncached_token}")
-            print(f"uncomputed_prefix_tokens: {stats.uncomputed_prefix_tokens}")
-            print(f"engine_prefill_tps: {stats.engine_prefill_tps}")
-            print(f"transfer_time: {transfer_time}")
-            print(f"forecasted_queue_time: {forecasted_queue_time}")
-            print(f"ttft: {ttft}")
-
-            if best_ttft_info is None or ttft < best_ttft:
+        best_ttft_url = None
+        for i, matched_info in enumerate(matched_infos):
+            ttft = self._estimate_ttft(matched_info, best_matched_info,
+                                       matched_stats[i])
+            if best_ttft_url is None or ttft <= best_ttft:
                 best_ttft = ttft
-                best_ttft_info = instance_info
-        if best_ttft_info is None:
+                best_ttft_url = matched_urls[i]
+
+        # cache not matched pass
+        matched_url_set = set(matched_urls)
+        not_matched_endpoints = [endpoint for endpoint in endpoints if endpoint.url not in matched_url_set]
+        for endpoint in not_matched_endpoints:
+            url = endpoint.url
+            stats = request_stats.get(url, None)
+            if stats is None:
+                raise ValueError(f"{url} provides no request stats ")
+            ttft = self._estimate_ttft(None, best_matched_info, stats)
+            if best_ttft_url is None or ttft <= best_ttft:
+                best_ttft = ttft
+                best_ttft_url = url
+
+        if best_ttft_url is None:
             raise ValueError(f"no best TTFT instance was found")
-        return best_ttft_info
+        return best_ttft_url
+
+    def _estimate_ttft(self, matched_info, best_matched_info, stats):
+        transfer_time = self._calc_transfer_time(matched_info, best_matched_info)
+        # TODO take computation time of num_uncached_token into account
+        if stats.uncomputed_prefix_tokens == 0:
+            forecasted_queue_time = 0
+        else:
+            forecasted_queue_time = (stats.uncomputed_prefix_tokens /
+                                     stats.engine_prefill_tps)
+        ttft = forecasted_queue_time + transfer_time
+
+        print(f"-------------- time estimations --------------")
+        # print(f"num_uncached_token: {num_uncached_token}")
+        print(f"uncomputed_prefix_tokens: {stats.uncomputed_prefix_tokens}")
+        print(f"engine_prefill_tps: {stats.engine_prefill_tps}")
+        print(f"transfer_time: {transfer_time}")
+        print(f"forecasted_queue_time: {forecasted_queue_time}")
+        print(f"ttft: {ttft}")
+        return ttft
 
     async def _get_instance_url(self, endpoints, instance_id):
         url = self.instance_id_to_url.get(instance_id, None)
@@ -621,13 +636,13 @@ class TtftRouter(RoutingInterface):
             raise ValueError(f"cannot resolve URL for {instance_id}")
         return url
 
-    def _calc_transfer_time(self, instance_info, best_matched_info):
-        print(f"instance_info[1][-1][1]: {instance_info[1][-1][1]}")
+    def _calc_transfer_time(self, matched_info, best_matched_info):
+        #print(f"matched_info[1][-1][1]: {matched_info[1][-1][1]}")
         transfer_time = 0
         for chunk in best_matched_info[1]:
             print(f"chunk[0]: {chunk[0]}")
             print(f"chunk[1]: {chunk[1]}")
-            if chunk[1] <= instance_info[1][-1][1]:
+            if matched_info is not None and chunk[1] <= matched_info[1][-1][1]:
                 continue
             # TODO better estimations
             if chunk[0] == "LocalCpuBackend":
