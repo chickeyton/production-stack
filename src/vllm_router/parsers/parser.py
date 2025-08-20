@@ -214,6 +214,13 @@ def parse_args():
         help="The port of the LMCache controller.",
     )
     parser.add_argument(
+        "--lmcache-instances",
+        type=str,
+        default=None,
+        help="The instance id in the lmcache config files, must be with the length of static-backends,"
+             " separated by commas. E.g., instance_0,instance_1",
+    )
+    parser.add_argument(
         "--session-key",
         type=str,
         default=None,
