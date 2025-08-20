@@ -526,6 +526,8 @@ class TtftRouter(RoutingInterface):
             longest prefix match)
         """
         if self.tokenizer is None:
+            print(f"||||||||||||||| self.tokenizer_name:<{self.tokenizer_name}>")
+            print(f"||||||||||||||| endpoints[0].model_names[0]:<{endpoints[0].model_names[0]}>")
             self.tokenizer = AutoTokenizer.from_pretrained(endpoints[0].model_names[0])
 
         token_ids = self.tokenizer.encode(request_json["prompt"])

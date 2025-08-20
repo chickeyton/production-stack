@@ -375,11 +375,11 @@ class RequestStatsMonitor(metaclass=SingletonMeta):
         for (url, request_id), start_time in self.request_start_time.items():
             print(f"url:{url} request_id:{request_id} start_time:{start_time}")
             if url != engine_url or start_time < min_start_time:
-                print(f"skip 1 |{url != engine_url}|{start_time < min_start_time}")
+                # print(f"skip 1 |{url != engine_url}|{start_time < min_start_time}")
                 continue
             if ((url, request_id) not in self.first_token_time or
                     (url, request_id) not in self.uncached_prefix_tokens):
-                print(f"skip 2 |{(url, request_id) not in self.first_token_time}|{(url, request_id) not in self.uncached_prefix_tokens}")
+                # print(f"skip 2 |{(url, request_id) not in self.first_token_time}|{(url, request_id) not in self.uncached_prefix_tokens}")
                 continue
 
             prefill_periods.union(start_time, self.first_token_time[(url, request_id)])
