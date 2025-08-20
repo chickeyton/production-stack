@@ -528,11 +528,10 @@ class TtftRouter(RoutingInterface):
         if self.tokenizer is None:
             self.tokenizer = AutoTokenizer.from_pretrained(endpoints[0].model_names[0])
 
+        token_ids = self.tokenizer.encode(request_json["prompt"])
         try:
             if request_stats is None:
                 ValueError("no request stats was provided")
-
-            token_ids = self.tokenizer.encode(request_json["prompt"])
             msg = FullLookupMsg(event_id="", tokens=token_ids)
             ret_msg = await self.kv_manager.handle_orchestration_message(msg)
             matched_infos = ret_msg.matched_info
@@ -546,6 +545,7 @@ class TtftRouter(RoutingInterface):
         except ValueError:
             logger.info("Fallback to QPS routing due to:")
             logger.info(traceback.format_exc())
+            self.uncached_prefix_tokens = len(token_ids)
             return self._fallback_routing(endpoints, request_stats, request)
 
     def _find_best_matched(self, matched_infos):
