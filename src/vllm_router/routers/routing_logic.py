@@ -569,7 +569,7 @@ class TtftRouter(RoutingInterface):
             stats = request_stats.get(url, None)
             if stats is None:
                 raise ValueError(f"{url} provides no request stats ")
-            if self.uncomputed_prefix_tokens > 0 and stats.engine_prefill_tps <= 0:
+            if stats.uncomputed_prefix_tokens > 0 and stats.engine_prefill_tps <= 0:
                 raise ValueError(f"{url} provides no way to forecasted queue time")
             urls.append(url)
             stats_list.append(stats)
@@ -581,10 +581,10 @@ class TtftRouter(RoutingInterface):
             stats = stats_list[i]
             transfer_time = self._calc_transfer_time(instance_info, best_matched_info)
             # TODO take computation time of num_uncached_token into account
-            if self.uncomputed_prefix_tokens == 0:
+            if stats.uncomputed_prefix_tokens == 0:
                 forecasted_queue_time = 0
             else:
-                forecasted_queue_time = (self.uncomputed_prefix_tokens /
+                forecasted_queue_time = (stats.uncomputed_prefix_tokens /
                                          stats.engine_prefill_tps)
             ttft = forecasted_queue_time + transfer_time
             if best_ttft_info is None or ttft < best_ttft:
