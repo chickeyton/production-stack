@@ -539,10 +539,10 @@ class TtftRouter(RoutingInterface):
             print(f">>>>>>>>>>>>>>>>>>>>>>> matched_infos={matched_infos}")
             best_matched_info = self._find_best_matched(matched_infos)
             print(f">>>>>>>>>>>>>>>>>>>>>>> best_matched_info={best_matched_info}")
-            best_ttft_info, num_uncached_token = \
+            self.uncached_prefix_tokens = len(token_ids) - best_matched_info[1][-1][1]
+            best_ttft_info = \
                 await self._find_best_ttft(endpoints, matched_infos, best_matched_info,
-                                           request_stats, len(token_ids))
-            self.uncached_prefix_tokens = num_uncached_token
+                                           request_stats)
             url = await self._get_instance_url(endpoints, best_ttft_info[0])
 
             return url
@@ -561,7 +561,7 @@ class TtftRouter(RoutingInterface):
         return best_matched_info
 
     async def _find_best_ttft(self, endpoints, matched_infos, best_matched_info,
-                              request_stats, num_prompt_token):
+                              request_stats):
         stats_list = []
         urls = []
         for instance_info in matched_infos:
@@ -574,7 +574,6 @@ class TtftRouter(RoutingInterface):
             urls.append(url)
             stats_list.append(stats)
 
-        num_uncached_token = num_prompt_token - best_matched_info[1][-1][1]
         best_ttft = float('inf')
         best_ttft_info = None
         for i, instance_info in enumerate(matched_infos):
@@ -589,7 +588,7 @@ class TtftRouter(RoutingInterface):
             ttft = forecasted_queue_time + transfer_time
 
             print(f"-------------- instance {i} estimations --------------")
-            print(f"num_uncached_token: {num_uncached_token}")
+            # print(f"num_uncached_token: {num_uncached_token}")
             print(f"uncomputed_prefix_tokens: {stats.uncomputed_prefix_tokens}")
             print(f"engine_prefill_tps: {stats.engine_prefill_tps}")
             print(f"transfer_time: {transfer_time}")
@@ -601,7 +600,7 @@ class TtftRouter(RoutingInterface):
                 best_ttft_info = instance_info
         if best_ttft_info is None:
             raise ValueError(f"no best TTFT instance was found")
-        return best_ttft_info, num_uncached_token
+        return best_ttft_info
 
     async def _get_instance_url(self, endpoints, instance_id):
         url = self.instance_id_to_url.get(instance_id, None)
