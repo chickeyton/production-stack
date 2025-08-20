@@ -341,6 +341,8 @@ class RequestStatsMonitor(metaclass=SingletonMeta):
             else:
                 swapped = 0
 
+            print(f"&&&&&&&&&&&&&& uncached_prefix_tokens:{self.uncached_prefix_tokens}")
+
             engine_prefill_tps = self._calc_engine_prefill_tps(current_time, engine_url)
             uncomputed_prefix_tokens = self._get_uncomputed_prefix_tokens(engine_url)
             # forecasted_queue_time = self._forecast_queue_time(engine_url, engine_prefill_tps)
