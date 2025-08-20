@@ -295,7 +295,7 @@ async def route_general_request(
         request_id,
         endpoint,
         background_tasks,
-        uncached_prefix_tokens,
+        uncached_prefix_tokens=uncached_prefix_tokens,
     )
     headers, status = await anext(stream_generator)
     headers_dict = {key: value for key, value in headers.items()}
