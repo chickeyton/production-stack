@@ -193,6 +193,9 @@ class RequestStatsMonitor(metaclass=SingletonMeta):
             timestamp: the timestamp when the request was created
             uncached_prefix_tokens: The number of uncached prefix tokens
         """
+        print(f"************************* on_new_request *************************")
+        print(f"engine_url:{engine_url} request_id:{request_id} timestamp:{timestamp}")
+        print(f"uncached_prefix_tokens:{uncached_prefix_tokens}")
         self.request_start_time[(engine_url, request_id)] = timestamp
 
         if uncached_prefix_tokens is not None:
