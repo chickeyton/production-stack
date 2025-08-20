@@ -382,7 +382,7 @@ class RequestStatsMonitor(metaclass=SingletonMeta):
 
             prefill_periods.union(start_time, self.first_token_time[(url, request_id)])
             all_uncached_prefix_tokens += self.uncached_prefix_tokens[(url, request_id)]
-            print(f"all_uncached_prefix_tokens:{all_uncached_prefix_tokens}")
+            print(f"[[[[[[[[[[[[[[[[[[[[[[[[[ all_uncached_prefix_tokens:{all_uncached_prefix_tokens}")
 
         length = prefill_periods.compute_length()
         print(f"all_uncached_prefix_tokens:{all_uncached_prefix_tokens} prefill_periods length:{length}")
