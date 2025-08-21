@@ -382,8 +382,10 @@ class RequestStatsMonitor(metaclass=SingletonMeta):
                 # print(f"skip 2 |{(url, request_id) not in self.first_token_time}|{(url, request_id) not in self.uncached_prefix_tokens}")
                 continue
 
-            prefill_periods.union(start_time, self.first_token_time[(url, request_id)])
-            all_uncached_prefix_tokens += self.uncached_prefix_tokens[(url, request_id)]
+            uncached_prefix_tokens = self.uncached_prefix_tokens[(url, request_id)]
+            if uncached_prefix_tokens > 0:
+                prefill_periods.union(start_time, self.first_token_time[(url, request_id)])
+                all_uncached_prefix_tokens += uncached_prefix_tokens
             #print(f"[[[[[[[[[[[[[[[[[[[[[[[[[ all_uncached_prefix_tokens:{all_uncached_prefix_tokens}")
 
         length = prefill_periods.compute_length()
