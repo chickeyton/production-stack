@@ -232,6 +232,8 @@ class KvawareRouter(RoutingInterface):
         lmcache_controller_port: int,
         session_key: str,
         kv_aware_threshold: int = 2000,
+        tokenizer_name: Optional[str] = None,
+        instance_id_to_ip: Optional[Dict[str, str]] = None,
     ):
         self.lmcache_controller_port = lmcache_controller_port
         logger.info(
@@ -241,9 +243,13 @@ class KvawareRouter(RoutingInterface):
             f"0.0.0.0:{self.lmcache_controller_port}"
         )
         self.req_id = 0
-        self.instance_id_to_ip = {}
+        if instance_id_to_ip is None:
+            self.instance_id_to_ip = {}
+        else:
+            self.instance_id_to_ip = instance_id_to_ip
         self.session_key = session_key
         self.hash_ring = HashRing()
+        self.tokenizer_name = tokenizer_name
         self.tokenizer = None
         self.threshold = kv_aware_threshold
 
@@ -255,6 +261,8 @@ class KvawareRouter(RoutingInterface):
         self.thread = threading.Thread(target=self.loop.run_forever, daemon=True)
         self.thread.start()
         asyncio.run_coroutine_threadsafe(self.kv_manager.start_all(), self.loop)
+        if self.tokenizer_name is not None:
+            self.tokenizer = AutoTokenizer.from_pretrained(self.tokenizer_name)
 
     def query_manager(self, msg) -> str:
         """
@@ -472,7 +480,7 @@ class TtftRouter(RoutingInterface):
         self,
         lmcache_contorller_port: int,
         session_key: str,
-        tokenizer_name: str,
+        tokenizer_name: Optional[str] = None,
         instance_id_to_url: Optional[Dict[str, str]] = None,
     ):
         logger.info(
@@ -491,7 +499,7 @@ class TtftRouter(RoutingInterface):
         self.tokenizer = None
         self.uncached_prefix_tokens = None
 
-    def start(self):
+    def start_kv_manager(self):
         """
         Start the kv manager
         """
@@ -499,7 +507,8 @@ class TtftRouter(RoutingInterface):
         self.thread = threading.Thread(target=self.loop.run_forever, daemon=True)
         self.thread.start()
         asyncio.run_coroutine_threadsafe(self.kv_manager.start_all(), self.loop)
-        # self.tokenizer = AutoTokenizer.from_pretrained(self.tokenizer_name)
+        if self.tokenizer_name is not None:
+            self.tokenizer = AutoTokenizer.from_pretrained(self.tokenizer_name)
 
     async def route_request(
         self,
@@ -526,8 +535,7 @@ class TtftRouter(RoutingInterface):
             longest prefix match)
         """
         if self.tokenizer is None:
-            print(f"||||||||||||||| self.tokenizer_name:<{self.tokenizer_name}>")
-            print(f"||||||||||||||| endpoints[0].model_names[0]:<{endpoints[0].model_names[0]}>")
+            # fallback to use the model of the first endpoint as tokenizer
             self.tokenizer = AutoTokenizer.from_pretrained(endpoints[0].model_names[0])
 
         token_ids = self.tokenizer.encode(request_json["prompt"])
@@ -688,6 +696,8 @@ def initialize_routing_logic(
             kwargs.get("lmcache_controller_port"),
             kwargs.get("session_key"),
             kwargs.get("kv_aware_threshold"),
+            kwargs.get("tokenizer"),
+            kwargs.get("instance_id_to_url"),
         )
         router.start_kv_manager()
         return router
@@ -707,7 +717,7 @@ def initialize_routing_logic(
             kwargs.get("tokenizer"),
             kwargs.get("instance_id_to_url"),
         )
-        router.start()
+        router.start_kv_manager()
         return router
     else:
         raise ValueError(f"Invalid routing logic {routing_logic}")
@@ -741,6 +751,3 @@ def get_routing_logic() -> RoutingInterface:
         if cls in SingletonABCMeta._instances:
             return cls()
     raise ValueError("The global router has not been initialized")
-
-def create_instance_id_to_url(kwargs):
-    kwargs
