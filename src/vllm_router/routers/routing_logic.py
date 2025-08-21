@@ -48,6 +48,32 @@ from vllm_router.utils import SingletonABCMeta
 logger = init_logger(__name__)
 
 
+def extract_prompt(request_json: Dict):
+    """Extract prompt message from the request json object."""
+    if "messages" in request_json:
+        # Get the last message from the messages array
+        messages = request_json["messages"]
+        if messages:
+            # Concatenate all message content
+            prompt_parts = []
+            for message in messages:
+                content = message.get("content", "")
+                if isinstance(content, list):
+                    # Handle multimodal messages
+                    text_content = " ".join(
+                        part.get("text", "")
+                        for part in content
+                        if part.get("type") == "text"
+                    )
+                    prompt_parts.append(text_content)
+                elif content is not None:
+                    prompt_parts.append(content)
+            return "\n".join(prompt_parts)
+        return ""
+    # Handle regular completions
+    return request_json["prompt"]
+
+
 class RoutingLogic(str, enum.Enum):
     ROUND_ROBIN = "roundrobin"
     SESSION_BASED = "session"
@@ -299,7 +325,7 @@ class KvawareRouter(RoutingInterface):
             self.tokenizer = AutoTokenizer.from_pretrained(endpoints[0].model_names[0])
         url = endpoints[0].url + "/tokenize"
         # TODO (Yuhan): Handle chat completions
-        token_ids = self.tokenizer.encode(request_json["prompt"])
+        token_ids = self.tokenizer.encode(extract_prompt(request_json))
         msg = LookupMsg(event_id="", tokens=token_ids)
         instance_id = await self.query_manager(msg)
         matched_tokens = math.inf
@@ -390,33 +416,7 @@ class PrefixAwareRouter(RoutingInterface):
             request_json (Dict): The request body (needed for finding the
             longest prefix match)
         """
-
-        # Handle chat completions
-        if "messages" in request_json:
-            # Get the last message from the messages array
-            messages = request_json["messages"]
-            if messages:
-                # Concatenate all message content
-                prompt_parts = []
-                for message in messages:
-                    content = message.get("content", "")
-                    if isinstance(content, list):
-                        # Handle multimodal messages
-                        text_content = " ".join(
-                            part.get("text", "")
-                            for part in content
-                            if part.get("type") == "text"
-                        )
-                        prompt_parts.append(text_content)
-                    elif content is not None:
-                        prompt_parts.append(content)
-                prompt = "\n".join(prompt_parts)
-            else:
-                prompt = ""
-        else:
-            # Handle regular completions
-            prompt = request_json["prompt"]
-
+        prompt = extract_prompt(request_json)
         available_endpoints = set(endpoint.url for endpoint in endpoints)
         _, matched_endpoint = await self.hashtrie.longest_prefix_match(
             prompt, available_endpoints
@@ -539,7 +539,7 @@ class TtftRouter(RoutingInterface):
             # fallback to use the model of the first endpoint as tokenizer
             self.tokenizer = AutoTokenizer.from_pretrained(endpoints[0].model_names[0])
 
-        token_ids = self.tokenizer.encode(request_json["prompt"])
+        token_ids = self.tokenizer.encode(extract_prompt(request_json))
         try:
             if request_stats is None:
                 ValueError("no request stats was provided")
