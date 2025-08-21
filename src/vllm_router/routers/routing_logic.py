@@ -300,7 +300,7 @@ class KvawareRouter(RoutingInterface):
         url = endpoints[0].url + "/tokenize"
         # TODO (Yuhan): Handle chat completions
         token_ids = self.tokenizer.encode(request_json["prompt"])
-        msg = LookupMsg(tokens=token_ids)
+        msg = LookupMsg(event_id="", tokens=token_ids)
         instance_id = await self.query_manager(msg)
         matched_tokens = math.inf
         if len(list(instance_id.layout_info.keys())) > 0:
@@ -333,6 +333,7 @@ class KvawareRouter(RoutingInterface):
             if queried_instance_ids[0] not in self.instance_id_to_ip:
                 for endpoint in endpoints:
                     query_message = QueryInstMsg(
+                        event_id="",
                         ip=endpoint.url.split(f":{endpoint.url.split(':')[-1]}")[
                             0
                         ].split("//")[1]
