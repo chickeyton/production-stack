@@ -275,8 +275,8 @@ async def route_general_request(
 
     uncached_prefix_tokens = getattr(request.app.state.router, "uncached_prefix_tokens", None)
 
-    print(f">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> router.uncached_prefix_tokens: {uncached_prefix_tokens}")
-    print(f"[[[{type(request.app.state.router).__name__}]]]")
+    #print(f">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> router.uncached_prefix_tokens: {uncached_prefix_tokens}")
+    #print(f"[[[{type(request.app.state.router).__name__}]]]")
 
     # Debug logging to help troubleshoot session ID extraction
     logger.debug(
