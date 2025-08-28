@@ -40,8 +40,8 @@ class WorkloadConfig:
     # Whether to include user id in request header
     enable_user_id: bool
 
-    # Max number of unfinished queries allowed
-    max_unfinished_queries: int
+    # Max number of unfinished queries allowed (None means no limit)
+    max_unfinished_queries: Optional[int]
 
 
 @dataclass
@@ -423,7 +423,9 @@ class UserSessionManager:
             self.start_time = timestamp
 
         pending_queries = len([s for s in self.sessions if s.has_unfinished_request])
-        if pending_queries > self.workload_config.max_unfinished_queries:
+        # Only check limit if max_unfinished_queries is set
+        if (self.workload_config.max_unfinished_queries is not None and 
+            pending_queries > self.workload_config.max_unfinished_queries):
             logger.info(f"unfinished queries >{self.workload_config.max_unfinished_queries}, waiting")
             return
 
@@ -636,8 +638,8 @@ def parse_arguments() -> WorkloadConfig:
     parser.add_argument(
         "--max-unfinished-queries",
         type=int,
-        default=50,
-        help="Maximum number of unfinished queries allowed (default: 50)",
+        default=None,
+        help="Maximum number of unfinished queries allowed (default: no limit)",
     )
     args = parser.parse_args()
     return args
