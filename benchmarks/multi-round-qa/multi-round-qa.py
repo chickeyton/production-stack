@@ -424,7 +424,7 @@ class UserSessionManager:
 
         pending_queries = len([s for s in self.sessions if s.has_unfinished_request])
         if pending_queries > self.workload_config.max_unfinished_queries:
-            #logger.info(f"unfinished queries >{self.workload_config.max_unfinished_queries}, waiting")
+            logger.info(f"unfinished queries >{self.workload_config.max_unfinished_queries}, waiting")
             return
 
         if timestamp - self.last_user_join > self.gap_between_users:
