@@ -193,9 +193,6 @@ class RequestStatsMonitor(metaclass=SingletonMeta):
             timestamp: the timestamp when the request was created
             uncached_prefix_tokens: The number of uncached prefix tokens
         """
-        #print(f"************************* on_new_request *************************")
-        #print(f"engine_url:{engine_url} request_id:{request_id} timestamp:{timestamp}")
-        #print(f"uncached_prefix_tokens:{uncached_prefix_tokens}")
         self.request_start_time[(engine_url, request_id)] = timestamp
 
         if uncached_prefix_tokens is not None:
@@ -341,11 +338,9 @@ class RequestStatsMonitor(metaclass=SingletonMeta):
             else:
                 swapped = 0
 
-            #print(f"&&&&&&&&&&&&&& uncached_prefix_tokens:{self.uncached_prefix_tokens}")
 
             engine_prefill_tps = self._calc_engine_prefill_tps(current_time, engine_url)
             uncomputed_prefix_tokens = self._get_uncomputed_prefix_tokens(engine_url)
-            # forecasted_queue_time = self._forecast_queue_time(engine_url, engine_prefill_tps)
 
             ret[engine_url] = RequestStats(
                 qps=qps,
@@ -366,30 +361,22 @@ class RequestStatsMonitor(metaclass=SingletonMeta):
         return ret
 
     def _calc_engine_prefill_tps(self, current_time: float, engine_url: str) -> float:
-        #print(f"**************_calc_engine_prefill_tps**************")
-        #print(f"engine_url:{engine_url} current_time:f{current_time} sliding_window_size:f{self.sliding_window_size}")
         min_start_time = current_time - self.sliding_window_size
-        #print(f"min_start_time:{min_start_time}")
         prefill_periods = TimePeriods()
         all_uncached_prefix_tokens = 0
         for (url, request_id), start_time in self.request_start_time.items():
-            #print(f"url:{url} request_id:{request_id} start_time:{start_time}")
             if url != engine_url or start_time < min_start_time:
-                # print(f"skip 1 |{url != engine_url}|{start_time < min_start_time}")
                 continue
             if ((url, request_id) not in self.first_token_time or
                     (url, request_id) not in self.uncached_prefix_tokens):
-                # print(f"skip 2 |{(url, request_id) not in self.first_token_time}|{(url, request_id) not in self.uncached_prefix_tokens}")
                 continue
 
             uncached_prefix_tokens = self.uncached_prefix_tokens[(url, request_id)]
             if uncached_prefix_tokens > 0:
                 prefill_periods.union(start_time, self.first_token_time[(url, request_id)])
                 all_uncached_prefix_tokens += uncached_prefix_tokens
-            #print(f"[[[[[[[[[[[[[[[[[[[[[[[[[ all_uncached_prefix_tokens:{all_uncached_prefix_tokens}")
 
         length = prefill_periods.compute_length()
-        #print(f"all_uncached_prefix_tokens:{all_uncached_prefix_tokens} prefill_periods length:{length}")
         if length > 0:
             return all_uncached_prefix_tokens / length
         return -1

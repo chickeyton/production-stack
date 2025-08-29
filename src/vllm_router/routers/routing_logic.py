@@ -546,9 +546,7 @@ class TtftRouter(RoutingInterface):
             msg = FullLookupMsg(event_id="", tokens=token_ids)
             ret_msg = await self.kv_manager.handle_orchestration_message(msg)
             matched_infos = ret_msg.matched_info
-            # print(f">>>>>>>>>>>>>>>>>>>>>>> matched_infos={matched_infos}")
             best_matched_info = self._find_best_matched(matched_infos)
-            # print(f">>>>>>>>>>>>>>>>>>>>>>> best_matched_info={best_matched_info}")
             self.uncached_prefix_tokens = len(token_ids) - best_matched_info[1][-1][1]
             best_ttft_url = await self._find_best_ttft(endpoints, matched_infos,
                                                        best_matched_info, request_stats)
@@ -586,7 +584,7 @@ class TtftRouter(RoutingInterface):
         best_ttft = float('inf')
         best_ttft_url = None
         for i, matched_info in enumerate(matched_infos):
-            print(f"-------------- URL:{matched_urls[i]} --------------")
+            logger.debug(f"-------------- URL:{matched_urls[i]} --------------")
             ttft = self._estimate_ttft(matched_info, best_matched_info,
                                        matched_stats[i])
             if best_ttft_url is None or ttft <= best_ttft:
@@ -601,7 +599,7 @@ class TtftRouter(RoutingInterface):
             stats = request_stats.get(url, None)
             if stats is None:
                 raise ValueError(f"{url} provides no request stats ")
-            print(f"-------------- URL:{url} --------------")
+            logger.debug(f"-------------- URL:{url} --------------")
             ttft = self._estimate_ttft(None, best_matched_info, stats)
             if best_ttft_url is None or ttft <= best_ttft:
                 best_ttft = ttft
@@ -621,12 +619,12 @@ class TtftRouter(RoutingInterface):
                                      stats.engine_prefill_tps)
         ttft = forecasted_queue_time + transfer_time
 
-        print(f"-------------- time estimations --------------")
-        print(f"uncomputed_prefix_tokens: {stats.uncomputed_prefix_tokens}")
-        print(f"engine_prefill_tps: {stats.engine_prefill_tps}")
-        print(f"transfer_time: {transfer_time}")
-        print(f"forecasted_queue_time: {forecasted_queue_time}")
-        print(f"ttft: {ttft}")
+        logger.debug(f"-------------- time estimations --------------")
+        logger.debug(f"uncomputed_prefix_tokens: {stats.uncomputed_prefix_tokens}")
+        logger.debug(f"engine_prefill_tps: {stats.engine_prefill_tps}")
+        logger.debug(f"transfer_time: {transfer_time}")
+        logger.debug(f"forecasted_queue_time: {forecasted_queue_time}")
+        logger.debug(f"ttft: {ttft}")
         return ttft
 
     async def _get_instance_url(self, endpoints, instance_id):
@@ -649,11 +647,8 @@ class TtftRouter(RoutingInterface):
         return url
 
     def _calc_transfer_time(self, matched_info, best_matched_info):
-        #print(f"matched_info[1][-1][1]: {matched_info[1][-1][1]}")
         transfer_time = 0
         for chunk in best_matched_info[1]:
-            #print(f"chunk[0]: {chunk[0]}")
-            #print(f"chunk[1]: {chunk[1]}")
             if matched_info is not None and chunk[1] <= matched_info[1][-1][1]:
                 continue
             # TODO better estimations
@@ -663,7 +658,6 @@ class TtftRouter(RoutingInterface):
                 transfer_time += 0.015
             else:
                 transfer_time += 0.01
-            #print(f"transfer_time: {transfer_time}")
         return transfer_time
 
     def _fallback_routing(self, endpoints, request_stats, request):
